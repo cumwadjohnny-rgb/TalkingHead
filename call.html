@@ -4,6 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>AI Video Call</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://jsdelivr.net",
+      "three/addons/": "https://jsdelivr.net",
+      "talkinghead": "./modules/talkinghead.mjs"
+    }
+  }
+  </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
     body { background: #0f0f13; color: #fff; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
@@ -39,15 +48,6 @@
       background: #1c1c24; color: #fff; font-size: 15px;
     }
   </style>
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://jsdelivr.net",
-      "three/addons/": "https://jsdelivr.net",
-      "talkinghead": "./modules/talkinghead.mjs"
-    }
-  }
-  </script>
 </head>
 <body>
   <div id="setup">
@@ -92,10 +92,19 @@
       setupEl.style.display = "none";
 
       if (head) return;
-      statusEl.textContent = "Loading 3D engine...";
       try {
-        const mod = await import("talkinghead");
-        statusEl.textContent = "Loading 3D avatar...";
+        statusEl.textContent = "Step 1: Testing Three.js...";
+        await import("three");
+        statusEl.textContent = "Step 2: Testing Addons...";
+        await import("three/addons/controls/OrbitControls.js");
+        statusEl.textContent = "Step 3: Testing Retargeter...";
+        await import("./modules/retargeter.mjs");
+        statusEl.textContent = "Step 4: Testing DynamicBones...";
+        await import("./modules/dynamicbones.mjs");
+        statusEl.textContent = "Step 5: Loading TalkingHead...";
+        const mod = await import("./modules/talkinghead.mjs");
+
+        statusEl.textContent = "Step 6: Loading 3D avatar...";
         head = new mod.TalkingHead(document.getElementById("avatar"), {
           ttsEndpoint: "https://googleapis.com",
           cameraView: "upper"
@@ -108,7 +117,7 @@
         });
         statusEl.textContent = "Connected. Tap Talk to speak.";
       } catch (err) {
-        statusEl.textContent = "Avatar Error: " + err.message;
+        statusEl.textContent = statusEl.textContent + " FAILED -> " + err.message;
       }
     }
 
