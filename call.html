@@ -16,12 +16,12 @@
     #user-cam { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
     #status {
       position: absolute; top: 16px; left: 16px; right: 140px; z-index: 10;
-      background: rgba(0,0,0,0.55); backdrop-filter: blur(8px);
+      background: rgba(0,0,0,0.65); backdrop-filter: blur(8px);
       padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4;
     }
     #controls {
       position: absolute; bottom: 28px; left: 0; right: 0; z-index: 10;
-      display: flex; justify-content: center; gap: 16px; padding: 0 16px;
+      display: flex; justify-content: center; gap: 14px; padding: 0 16px;
     }
     button {
       border: none; border-radius: 50px; padding: 14px 20px; font-size: 15px;
@@ -31,7 +31,7 @@
     button.active { background: #22c55e; color: #000; }
     button.warn { background: #ef4444; }
     #setup {
-      position: absolute; inset: 0; z-index: 20; background: rgba(15,15,19,0.95);
+      position: absolute; inset: 0; z-index: 20; background: rgba(15,15,19,0.96);
       display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 24px;
     }
     input, textarea {
@@ -53,9 +53,10 @@
   <div id="setup">
     <h2>Start AI Video Call</h2>
     <input id="apiKey" type="password" placeholder="OpenRouter API Key (sk-or-...)" />
-    <input id="model" type="text" value="qwen/qwen2.5-vl-72b-instruct:free" placeholder="Model ID" />
+    <input id="model" type="text" value="openrouter/free" placeholder="Model ID" />
     <textarea id="persona" rows="3">You are a close, expressive companion on a live video call. Keep replies short, natural, and conversational (1 to 3 sentences). React to what you see on the user's camera when available.</textarea>
-    <button class="active" id="startBtn">Join Call</button>
+    <button class="active" id="startBtn" type="button">Join Call</button>
+    <div id="setupErr" style="color:#f87171; font-size:13px;"></div>
   </div>
 
   <div id="avatar"></div>
@@ -64,53 +65,63 @@
   <canvas id="snap" style="display:none;"></canvas>
 
   <div id="controls">
-    <button id="micBtn">🎙️ Talk</button>
-    <button id="camBtn">📷 Camera Off</button>
-    <button class="warn" id="cfgBtn">⚙️</button>
+    <button id="micBtn" type="button">🎙️ Talk</button>
+    <button id="camBtn" type="button">📷 Camera Off</button>
+    <button class="warn" id="cfgBtn" type="button">⚙️</button>
   </div>
+
+  <script>
+    window.onerror = function(msg) {
+      document.getElementById("setupErr").textContent = "Error: " + msg;
+      document.getElementById("status").textContent = "Error: " + msg;
+    };
+  </script>
 
   <script type="module">
     import { TalkingHead } from "talkinghead";
 
-    let head, camStream = null, isListening = false;
+    let head = null, camStream = null, isListening = false;
     const history = [];
     const statusEl = document.getElementById("status");
     const setupEl = document.getElementById("setup");
 
-    // Load saved settings
     document.getElementById("apiKey").value = localStorage.getItem("or_key") || "";
     if (localStorage.getItem("or_model")) document.getElementById("model").value = localStorage.getItem("or_model");
     if (localStorage.getItem("or_persona")) document.getElementById("persona").value = localStorage.getItem("or_persona");
 
-    // Initialize 3D Avatar using the repo's built-in avatar model
     async function initAvatar() {
       if (head) return;
       statusEl.textContent = "Loading 3D avatar...";
-      head = new TalkingHead(document.getElementById("avatar"), {
-        ttsEndpoint: "https://googleapis.com",
-        cameraView: "upper"
-      });
-      await head.showAvatar({
-        url: "./avatars/brunette.glb",
-        body: "F",
-        avatarMood: "happy",
-        lipsyncLang: "en"
-      });
-      statusEl.textContent = "Connected. Tap Talk to speak.";
+      try {
+        head = new TalkingHead(document.getElementById("avatar"), {
+          ttsEndpoint: "https://googleapis.com",
+          cameraView: "upper"
+        });
+        await head.showAvatar({
+          url: "./avatars/brunette.glb",
+          body: "F",
+          avatarMood: "happy",
+          lipsyncLang: "en"
+        });
+        statusEl.textContent = "Connected. Tap Talk to speak.";
+      } catch (err) {
+        statusEl.textContent = "Avatar load failed: " + err.message;
+      }
     }
 
-    document.getElementById("startBtn").onclick = async () => {
+    document.getElementById("startBtn").addEventListener("click", async () => {
       localStorage.setItem("or_key", document.getElementById("apiKey").value.trim());
       localStorage.setItem("or_model", document.getElementById("model").value.trim());
       localStorage.setItem("or_persona", document.getElementById("persona").value.trim());
       setupEl.style.display = "none";
       await initAvatar();
-    };
+    });
 
-    document.getElementById("cfgBtn").onclick = () => { setupEl.style.display = "flex"; };
+    document.getElementById("cfgBtn").addEventListener("click", () => {
+      setupEl.style.display = "flex";
+    });
 
-    // Toggle Selfie Camera
-    document.getElementById("camBtn").onclick = async () => {
+    document.getElementById("camBtn").addEventListener("click", async () => {
       const btn = document.getElementById("camBtn");
       const wrap = document.getElementById("pip-wrap");
       const video = document.getElementById("user-cam");
@@ -131,9 +142,8 @@
         btn.textContent = "📷 Camera Off";
         btn.classList.remove("active");
       }
-    };
+    });
 
-    // Capture current camera frame as JPEG base64
     function captureFrame() {
       if (!camStream) return null;
       const video = document.getElementById("user-cam");
@@ -144,22 +154,20 @@
       return canvas.toDataURL("image/jpeg", 0.7);
     }
 
-    // Speak text using phone's built-in voice + avatar lip animation
     function speakReply(text) {
       statusEl.textContent = text;
       window.speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
-      utter.onstart = () => head.startSpeaking(true);
-      utter.onend = () => head.stopSpeaking();
-      utter.onerror = () => head.stopSpeaking();
+      utter.onstart = () => { if (head) head.startSpeaking(true); };
+      utter.onend = () => { if (head) head.stopSpeaking(); };
+      utter.onerror = () => { if (head) head.stopSpeaking(); };
       window.speechSynthesis.speak(utter);
     }
 
-    // Send speech + optional camera frame to OpenRouter LLM
     async function sendToLLM(userText) {
       statusEl.textContent = "Thinking...";
       const key = localStorage.getItem("or_key");
-      const model = localStorage.getItem("or_model");
+      const model = localStorage.getItem("or_model") || "openrouter/free";
       const persona = localStorage.getItem("or_persona");
 
       const frame = captureFrame();
@@ -180,15 +188,18 @@
           body: JSON.stringify({ model, messages: recent })
         });
         const data = await res.json();
+        if (data.error) {
+          statusEl.textContent = "OpenRouter Error: " + (data.error.message || JSON.stringify(data.error));
+          return;
+        }
         const reply = data.choices?.[0]?.message?.content || "I didn't catch that.";
         history.push({ role: "assistant", content: reply });
         speakReply(reply);
       } catch (err) {
-        statusEl.textContent = "API Error: " + err.message;
+        statusEl.textContent = "Network Error: " + err.message;
       }
     }
 
-    // Microphone Speech-to-Text
     const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
     const rec = SpeechRec ? new SpeechRec() : null;
     if (rec) {
@@ -199,6 +210,9 @@
         statusEl.textContent = "You: " + transcript;
         sendToLLM(transcript);
       };
+      rec.onerror = (e) => {
+        statusEl.textContent = "Mic Error: " + e.error;
+      };
       rec.onend = () => {
         isListening = false;
         document.getElementById("micBtn").classList.remove("active");
@@ -206,7 +220,7 @@
       };
     }
 
-    document.getElementById("micBtn").onclick = () => {
+    document.getElementById("micBtn").addEventListener("click", () => {
       if (!rec) { statusEl.textContent = "Speech recognition not supported in this browser."; return; }
       if (!isListening) {
         window.speechSynthesis.cancel();
@@ -217,7 +231,7 @@
       } else {
         rec.stop();
       }
-    };
+    });
   </script>
 </body>
 </html>
