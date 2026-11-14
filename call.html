@@ -42,8 +42,8 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://esm.sh",
-      "three/addons/": "https://esm.sh/examples/jsm/",
+      "three": "https://jsdelivr.net",
+      "three/addons/": "https://jsdelivr.net",
       "talkinghead": "./modules/talkinghead.mjs"
     }
   }
@@ -94,7 +94,7 @@
       if (head) return;
       statusEl.textContent = "Loading 3D engine...";
       try {
-        const mod = await import("./modules/talkinghead.mjs");
+        const mod = await import("talkinghead");
         statusEl.textContent = "Loading 3D avatar...";
         head = new mod.TalkingHead(document.getElementById("avatar"), {
           ttsEndpoint: "https://googleapis.com",
