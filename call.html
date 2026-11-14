@@ -55,8 +55,7 @@
     <input id="apiKey" type="password" placeholder="OpenRouter API Key (sk-or-...)" />
     <input id="model" type="text" value="openrouter/free" placeholder="Model ID" />
     <textarea id="persona" rows="3">You are a close, expressive companion on a live video call. Keep replies short, natural, and conversational (1 to 3 sentences). React to what you see on the user's camera when available.</textarea>
-    <button class="active" id="startBtn" type="button">Join Call</button>
-    <div id="setupErr" style="color:#f87171; font-size:13px;"></div>
+    <button class="active" id="startBtn" type="button" onclick="joinCall()">Join Call</button>
   </div>
 
   <div id="avatar"></div>
@@ -65,23 +64,16 @@
   <canvas id="snap" style="display:none;"></canvas>
 
   <div id="controls">
-    <button id="micBtn" type="button">🎙️ Talk</button>
-    <button id="camBtn" type="button">📷 Camera Off</button>
-    <button class="warn" id="cfgBtn" type="button">⚙️</button>
+    <button id="micBtn" type="button" onclick="toggleMic()">🎙️ Talk</button>
+    <button id="camBtn" type="button" onclick="toggleCam()">📷 Camera Off</button>
+    <button class="warn" id="cfgBtn" type="button" onclick="openSetup()">⚙️</button>
   </div>
 
   <script>
-    window.onerror = function(msg) {
-      document.getElementById("setupErr").textContent = "Error: " + msg;
-      document.getElementById("status").textContent = "Error: " + msg;
-    };
-  </script>
-
-  <script type="module">
-    import { TalkingHead } from "talkinghead";
-
-    let head = null, camStream = null, isListening = false;
-    const history = [];
+    let head = null;
+    let camStream = null;
+    let isListening = false;
+    const chatHistory = [];
     const statusEl = document.getElementById("status");
     const setupEl = document.getElementById("setup");
 
@@ -89,11 +81,22 @@
     if (localStorage.getItem("or_model")) document.getElementById("model").value = localStorage.getItem("or_model");
     if (localStorage.getItem("or_persona")) document.getElementById("persona").value = localStorage.getItem("or_persona");
 
-    async function initAvatar() {
+    function openSetup() {
+      setupEl.style.display = "flex";
+    }
+
+    async function joinCall() {
+      localStorage.setItem("or_key", document.getElementById("apiKey").value.trim());
+      localStorage.setItem("or_model", document.getElementById("model").value.trim());
+      localStorage.setItem("or_persona", document.getElementById("persona").value.trim());
+      setupEl.style.display = "none";
+
       if (head) return;
-      statusEl.textContent = "Loading 3D avatar...";
+      statusEl.textContent = "Loading 3D engine...";
       try {
-        head = new TalkingHead(document.getElementById("avatar"), {
+        const mod = await import("talkinghead");
+        statusEl.textContent = "Loading 3D avatar...";
+        head = new mod.TalkingHead(document.getElementById("avatar"), {
           ttsEndpoint: "https://googleapis.com",
           cameraView: "upper"
         });
@@ -105,23 +108,11 @@
         });
         statusEl.textContent = "Connected. Tap Talk to speak.";
       } catch (err) {
-        statusEl.textContent = "Avatar load failed: " + err.message;
+        statusEl.textContent = "Avatar Error: " + err.message;
       }
     }
 
-    document.getElementById("startBtn").addEventListener("click", async () => {
-      localStorage.setItem("or_key", document.getElementById("apiKey").value.trim());
-      localStorage.setItem("or_model", document.getElementById("model").value.trim());
-      localStorage.setItem("or_persona", document.getElementById("persona").value.trim());
-      setupEl.style.display = "none";
-      await initAvatar();
-    });
-
-    document.getElementById("cfgBtn").addEventListener("click", () => {
-      setupEl.style.display = "flex";
-    });
-
-    document.getElementById("camBtn").addEventListener("click", async () => {
+    async function toggleCam() {
       const btn = document.getElementById("camBtn");
       const wrap = document.getElementById("pip-wrap");
       const video = document.getElementById("user-cam");
@@ -142,7 +133,7 @@
         btn.textContent = "📷 Camera Off";
         btn.classList.remove("active");
       }
-    });
+    }
 
     function captureFrame() {
       if (!camStream) return null;
@@ -175,25 +166,26 @@
         ? [{ type: "text", text: userText }, { type: "image_url", image_url: { url: frame } }]
         : userText;
 
-      history.push({ role: "user", content });
-      const recent = [{ role: "system", content: persona }, ...history.slice(-10)];
+      chatHistory.push({ role: "user", content });
+      const recent = [{ role: "system", content: persona }, ...chatHistory.slice(-10)];
 
       try {
         const res = await fetch("https://openrouter.ai", {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${key}`,
+            "Authorization": "Bearer " + key,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ model, messages: recent })
+          body: JSON.stringify({ model: model, messages: recent })
         });
         const data = await res.json();
         if (data.error) {
           statusEl.textContent = "OpenRouter Error: " + (data.error.message || JSON.stringify(data.error));
           return;
         }
-        const reply = data.choices?.[0]?.message?.content || "I didn't catch that.";
-        history.push({ role: "assistant", content: reply });
+        const firstChoice = data.choices && data.choices.at(0);
+        const reply = firstChoice ? firstChoice.message.content : "I didn't catch that.";
+        chatHistory.push({ role: "assistant", content: reply });
         speakReply(reply);
       } catch (err) {
         statusEl.textContent = "Network Error: " + err.message;
@@ -206,7 +198,7 @@
       rec.lang = "en-US";
       rec.interimResults = false;
       rec.onresult = (e) => {
-        const transcript = e.results[0][0].transcript;
+        const transcript = e.results.item(0).item(0).transcript;
         statusEl.textContent = "You: " + transcript;
         sendToLLM(transcript);
       };
@@ -220,7 +212,7 @@
       };
     }
 
-    document.getElementById("micBtn").addEventListener("click", () => {
+    function toggleMic() {
       if (!rec) { statusEl.textContent = "Speech recognition not supported in this browser."; return; }
       if (!isListening) {
         window.speechSynthesis.cancel();
@@ -231,7 +223,7 @@
       } else {
         rec.stop();
       }
-    });
+    }
   </script>
 </body>
 </html>
