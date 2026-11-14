@@ -97,18 +97,8 @@
 
       if (head) return;
       try {
-        statusEl.textContent = "Step 1: Testing Three.js...";
-        await import("three");
-        statusEl.textContent = "Step 2: Testing Addons...";
-        await import("three/addons/controls/OrbitControls.js");
-        statusEl.textContent = "Step 3: Testing Retargeter...";
-        await import("./modules/retargeter.mjs");
-        statusEl.textContent = "Step 4: Testing DynamicBones...";
-        await import("./modules/dynamicbones.mjs");
-        statusEl.textContent = "Step 5: Loading TalkingHead...";
+        statusEl.textContent = "Loading 3D avatar...";
         const mod = await import("./modules/talkinghead.mjs");
-
-        statusEl.textContent = "Step 6: Loading 3D avatar...";
         head = new mod.TalkingHead(document.getElementById("avatar"), {
           cameraView: "upper"
         });
@@ -120,7 +110,7 @@
         });
         statusEl.textContent = "Connected. Tap Talk to speak.";
       } catch (err) {
-        statusEl.textContent = statusEl.textContent + " FAILED -> " + err.message;
+        statusEl.textContent = "Avatar Error: " + err.message;
       }
     }
 
@@ -168,8 +158,12 @@
     }
 
     async function sendToLLM(userText) {
+      const key = (localStorage.getItem("or_key") || "").replace(/[^\x20-\x7E]/g, "").trim();
+      if (!key) {
+        statusEl.textContent = "Missing API Key. Tap ⚙️ to enter your OpenRouter key.";
+        return;
+      }
       statusEl.textContent = "Thinking...";
-      const key = localStorage.getItem("or_key");
       const model = localStorage.getItem("or_model") || "openrouter/free";
       const persona = localStorage.getItem("or_persona");
 
@@ -187,6 +181,8 @@
           method: "POST",
           headers: {
             "Authorization": "Bearer " + key,
+            "HTTP-Referer": window.location.origin,
+            "X-Title": "AI Video Call",
             "Content-Type": "application/json"
           },
           body: JSON.stringify({ model: model, messages: recent })
