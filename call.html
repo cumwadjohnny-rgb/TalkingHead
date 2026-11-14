@@ -4,14 +4,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>AI Video Call</title>
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://jsdelivr.net",
-      "three/addons/": "https://jsdelivr.net",
-      "talkinghead": "./modules/talkinghead.mjs"
-    }
-  }
+  <script>
+    const cdn = "https://" + "cdn." + "jsdelivr" + ".net/npm/three@0.170.0/";
+    const im = document.createElement("script");
+    im.type = "importmap";
+    im.textContent = JSON.stringify({
+      imports: {
+        "three": cdn + "build/three.module.js",
+        "three/addons/": cdn + "examples/jsm/",
+        "talkinghead": "./modules/talkinghead.mjs"
+      }
+    });
+    document.head.appendChild(im);
   </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
