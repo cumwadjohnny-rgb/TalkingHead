@@ -19,37 +19,46 @@
   </script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, sans-serif; }
-    body { background: #0f0f13; color: #fff; height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
-    #avatar { width: 100%; height: 100%; position: absolute; inset: 0; }
+    html, body { background: #0f0f13; color: #fff; height: 100%; overflow: hidden; }
+    #avatar { width: 100%; height: 100%; position: fixed; inset: 0; }
     #pip-wrap {
-      position: absolute; top: 16px; right: 16px; width: 110px; height: 150px;
+      position: fixed; top: 16px; right: 16px; width: 105px; height: 140px;
       border-radius: 14px; overflow: hidden; border: 2px solid rgba(255,255,255,0.25);
       background: #1c1c24; display: none; z-index: 10;
     }
     #user-cam { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
     #status {
-      position: absolute; top: 16px; left: 16px; right: 140px; z-index: 10;
+      position: fixed; top: 16px; left: 16px; right: 132px; z-index: 10;
       background: rgba(0,0,0,0.65); backdrop-filter: blur(8px);
       padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.4;
+      max-height: 32vh; overflow-y: auto;
     }
-    #controls {
-      position: absolute; bottom: 28px; left: 0; right: 0; z-index: 10;
-      display: flex; justify-content: center; gap: 14px; padding: 0 16px;
+    #bottom-dock {
+      position: fixed; bottom: 18px; left: 0; right: 0; z-index: 10;
+      display: flex; flex-direction: column; gap: 10px; padding: 0 14px;
     }
+    #chat-row { display: flex; gap: 8px; width: 100%; max-width: 520px; margin: 0 auto; }
+    #chatInput {
+      flex: 1; padding: 12px 16px; border-radius: 50px;
+      border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(20,20,28,0.88); backdrop-filter: blur(10px);
+      color: #fff; font-size: 16px; outline: none;
+    }
+    #controls { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
     button {
-      border: none; border-radius: 50px; padding: 14px 20px; font-size: 15px;
+      border: none; border-radius: 50px; padding: 11px 14px; font-size: 13px;
       font-weight: 600; cursor: pointer; background: rgba(255,255,255,0.18);
       color: #fff; backdrop-filter: blur(10px);
     }
     button.active { background: #22c55e; color: #000; }
     button.warn { background: #ef4444; }
     #setup {
-      position: absolute; inset: 0; z-index: 20; background: rgba(15,15,19,0.96);
+      position: fixed; inset: 0; z-index: 20; background: rgba(15,15,19,0.96);
       display: flex; flex-direction: column; justify-content: center; gap: 14px; padding: 24px;
     }
-    input, textarea {
+    #setup input, #setup textarea {
       width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #333;
-      background: #1c1c24; color: #fff; font-size: 15px;
+      background: #1c1c24; color: #fff; font-size: 16px;
     }
   </style>
 </head>
@@ -57,8 +66,8 @@
   <div id="setup">
     <h2>Start AI Video Call</h2>
     <input id="apiKey" type="password" placeholder="OpenRouter API Key (sk-or-...)" />
-    <input id="model" type="text" value="openrouter/free" placeholder="Model ID" />
-    <textarea id="persona" rows="3">You are a close, expressive companion on a live video call. Keep replies short, natural, and conversational (1 to 3 sentences). React to what you see on the user's camera when available.</textarea>
+    <input id="model" type="text" value="qwen/qwen2.5-vl-72b-instruct:free" placeholder="Model ID" />
+    <textarea id="persona" rows="3"></textarea>
     <button class="active" id="startBtn" type="button" onclick="joinCall()">Join Call</button>
   </div>
 
@@ -67,172 +76,20 @@
   <div id="pip-wrap"><video id="user-cam" autoplay playsinline muted></video></div>
   <canvas id="snap" style="display:none;"></canvas>
 
-  <div id="controls">
-    <button id="micBtn" type="button" onclick="toggleMic()">🎙️ Talk</button>
-    <button id="camBtn" type="button" onclick="toggleCam()">📷 Camera Off</button>
-    <button class="warn" id="cfgBtn" type="button" onclick="openSetup()">⚙️</button>
+  <div id="bottom-dock">
+    <form id="chat-row" onsubmit="sendTypedMessage(event)">
+      <input id="chatInput" type="text" placeholder="Type a message..." autocomplete="off" />
+      <button class="active" type="submit">Send</button>
+    </form>
+    <div id="controls">
+      <button id="micBtn" type="button" onclick="toggleMic()">🎙️ Talk</button>
+      <button id="camBtn" type="button" onclick="toggleCam()">📷 Cam</button>
+      <button id="muteBtn" class="active" type="button" onclick="toggleVoice()">🔊 Voice</button>
+      <button id="autoBtn" class="active" type="button" onclick="toggleAuto()">🤖 Auto On</button>
+      <button class="warn" id="cfgBtn" type="button" onclick="openSetup()">⚙️</button>
+    </div>
   </div>
 
-  <script>
-    let head = null;
-    let camStream = null;
-    let isListening = false;
-    const chatHistory = [];
-    const statusEl = document.getElementById("status");
-    const setupEl = document.getElementById("setup");
-
-    document.getElementById("apiKey").value = localStorage.getItem("or_key") || "";
-    if (localStorage.getItem("or_model")) document.getElementById("model").value = localStorage.getItem("or_model");
-    if (localStorage.getItem("or_persona")) document.getElementById("persona").value = localStorage.getItem("or_persona");
-
-    function openSetup() {
-      setupEl.style.display = "flex";
-    }
-
-    async function joinCall() {
-      localStorage.setItem("or_key", document.getElementById("apiKey").value.trim());
-      localStorage.setItem("or_model", document.getElementById("model").value.trim());
-      localStorage.setItem("or_persona", document.getElementById("persona").value.trim());
-      setupEl.style.display = "none";
-
-      if (head) return;
-      try {
-        statusEl.textContent = "Loading 3D avatar...";
-        const mod = await import("./modules/talkinghead.mjs");
-        head = new mod.TalkingHead(document.getElementById("avatar"), {
-          cameraView: "upper"
-        });
-        await head.showAvatar({
-          url: "./avatars/brunette.glb",
-          body: "F",
-          avatarMood: "happy",
-          lipsyncLang: "en"
-        });
-        statusEl.textContent = "Connected. Tap Talk to speak.";
-      } catch (err) {
-        statusEl.textContent = "Avatar Error: " + err.message;
-      }
-    }
-
-    async function toggleCam() {
-      const btn = document.getElementById("camBtn");
-      const wrap = document.getElementById("pip-wrap");
-      const video = document.getElementById("user-cam");
-      if (!camStream) {
-        try {
-          camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
-          video.srcObject = camStream;
-          wrap.style.display = "block";
-          btn.textContent = "📷 Camera On";
-          btn.classList.add("active");
-        } catch (e) {
-          statusEl.textContent = "Camera blocked: " + e.message;
-        }
-      } else {
-        camStream.getTracks().forEach(t => t.stop());
-        camStream = null;
-        wrap.style.display = "none";
-        btn.textContent = "📷 Camera Off";
-        btn.classList.remove("active");
-      }
-    }
-
-    function captureFrame() {
-      if (!camStream) return null;
-      const video = document.getElementById("user-cam");
-      const canvas = document.getElementById("snap");
-      canvas.width = 480;
-      canvas.height = Math.round((video.videoHeight / video.videoWidth) * 480) || 640;
-      canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-      return canvas.toDataURL("image/jpeg", 0.7);
-    }
-
-    function speakReply(text) {
-      statusEl.textContent = text;
-      window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.onstart = () => { if (head) head.startSpeaking(true); };
-      utter.onend = () => { if (head) head.stopSpeaking(); };
-      utter.onerror = () => { if (head) head.stopSpeaking(); };
-      window.speechSynthesis.speak(utter);
-    }
-
-    async function sendToLLM(userText) {
-      const key = (localStorage.getItem("or_key") || "").replace(/[^\x20-\x7E]/g, "").trim();
-      if (!key) {
-        statusEl.textContent = "Missing API Key. Tap ⚙️ to enter your OpenRouter key.";
-        return;
-      }
-      statusEl.textContent = "Thinking...";
-      const model = localStorage.getItem("or_model") || "openrouter/free";
-      const persona = localStorage.getItem("or_persona");
-
-      const frame = captureFrame();
-      const content = frame
-        ? [{ type: "text", text: userText }, { type: "image_url", image_url: { url: frame } }]
-        : userText;
-
-      chatHistory.push({ role: "user", content });
-      const recent = [{ role: "system", content: persona }, ...chatHistory.slice(-10)];
-
-      try {
-        const apiEndpoint = atob("aHR0cHM6Ly9vcGVucm91dGVyLmFpL2FwaS92MS9jaGF0L2NvbXBsZXRpb25z");
-        const res = await fetch(apiEndpoint, {
-          method: "POST",
-          headers: {
-            "Authorization": "Bearer " + key,
-            "HTTP-Referer": window.location.origin,
-            "X-Title": "AI Video Call",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ model: model, messages: recent })
-        });
-        const data = await res.json();
-        if (data.error) {
-          statusEl.textContent = "OpenRouter Error: " + (data.error.message || JSON.stringify(data.error));
-          return;
-        }
-        const firstChoice = data.choices && data.choices.at(0);
-        const reply = firstChoice ? firstChoice.message.content : "I didn't catch that.";
-        chatHistory.push({ role: "assistant", content: reply });
-        speakReply(reply);
-      } catch (err) {
-        statusEl.textContent = "Network Error: " + err.message;
-      }
-    }
-
-    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const rec = SpeechRec ? new SpeechRec() : null;
-    if (rec) {
-      rec.lang = "en-US";
-      rec.interimResults = false;
-      rec.onresult = (e) => {
-        const transcript = e.results.item(0).item(0).transcript;
-        statusEl.textContent = "You: " + transcript;
-        sendToLLM(transcript);
-      };
-      rec.onerror = (e) => {
-        statusEl.textContent = "Mic Error: " + e.error;
-      };
-      rec.onend = () => {
-        isListening = false;
-        document.getElementById("micBtn").classList.remove("active");
-        document.getElementById("micBtn").textContent = "🎙️ Talk";
-      };
-    }
-
-    function toggleMic() {
-      if (!rec) { statusEl.textContent = "Speech recognition not supported in this browser."; return; }
-      if (!isListening) {
-        window.speechSynthesis.cancel();
-        isListening = true;
-        document.getElementById("micBtn").classList.add("active");
-        document.getElementById("micBtn").textContent = "🛑 Listening...";
-        rec.start();
-      } else {
-        rec.stop();
-      }
-    }
-  </script>
+  <script src="./call.js?v=2"></script>
 </body>
 </html>
