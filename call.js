@@ -13,7 +13,7 @@ const setupEl = document.getElementById("setup");
 const DEFAULT_PERSONA = "You are a close, expressive companion on a live video call. Keep replies short, natural, and conversational (1 to 3 sentences). Start every reply with one reaction emoji matching your mood or action (such as 😊, 😉, 👋, 😘, 🤔, 😮, ❤️, or 🙄). React to what you see on the user's camera when available.";
 
 document.getElementById("apiKey").value = localStorage.getItem("or_key") || "";
-document.getElementById("model").value = localStorage.getItem("or_model") || "qwen/qwen2.5-vl-72b-instruct:free";
+document.getElementById("model").value = localStorage.getItem("or_model") || "openrouter/free";
 document.getElementById("persona").value = localStorage.getItem("or_persona") || DEFAULT_PERSONA;
 
 window.openSetup = function() {
@@ -113,29 +113,40 @@ window.toggleCam = async function() {
   const video = document.getElementById("user-cam");
   if (!camStream) {
     try {
-      camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      statusEl.textContent = "Starting camera...";
+      camStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user" },
+        audio: false
+      });
       video.srcObject = camStream;
       wrap.style.display = "block";
+      await video.play();
       btn.textContent = "📷 Cam On";
       btn.classList.add("active");
+      statusEl.textContent = "Camera active.";
     } catch (e) {
-      statusEl.textContent = "Camera blocked: " + e.message;
+      camStream = null;
+      wrap.style.display = "none";
+      statusEl.textContent = "Camera Error: " + e.message;
     }
   } else {
     camStream.getTracks().forEach(t => t.stop());
+    video.srcObject = null;
     camStream = null;
     wrap.style.display = "none";
     btn.textContent = "📷 Cam";
     btn.classList.remove("active");
+    statusEl.textContent = "Camera off.";
   }
 };
 
 function captureFrame() {
   if (!camStream) return null;
   const video = document.getElementById("user-cam");
+  if (!video.videoWidth || !video.videoHeight) return null;
   const canvas = document.getElementById("snap");
   canvas.width = 480;
-  canvas.height = Math.round((video.videoHeight / video.videoWidth) * 480) || 640;
+  canvas.height = Math.round((video.videoHeight / video.videoWidth) * 480);
   canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", 0.7);
 }
@@ -195,7 +206,7 @@ function speakReply(text) {
   window.speechSynthesis.speak(utter);
 }
 
-async function sendToLLM(userText, isAutonomous) {
+async function sendToLLM(userText, isAutonomous, forceTextOnly) {
   const key = (localStorage.getItem("or_key") || "").replace(/[^\x20-\x7E]/g, "").trim();
   if (!key) {
     statusEl.textContent = "Missing API Key. Tap ⚙️ to enter your OpenRouter key.";
@@ -206,16 +217,16 @@ async function sendToLLM(userText, isAutonomous) {
   clearTimeout(autoTimer);
   if (!isAutonomous) statusEl.textContent = "Thinking...";
 
-  const model = localStorage.getItem("or_model") || "qwen/qwen2.5-vl-72b-instruct:free";
+  const model = localStorage.getItem("or_model") || "openrouter/free";
   const persona = localStorage.getItem("or_persona") || DEFAULT_PERSONA;
-  const isTextOnlyModel = model.toLowerCase().includes("dolphin") || model.toLowerCase().includes("mythomax");
+  const isTextOnlyModel = forceTextOnly || model.toLowerCase().includes("dolphin") || model.toLowerCase().includes("mythomax");
 
   const frame = isTextOnlyModel ? null : captureFrame();
   const content = frame
     ? [{ type: "text", text: userText }, { type: "image_url", image_url: { url: frame } }]
     : userText;
 
-  chatHistory.push({ role: "user", content });
+  if (!forceTextOnly) chatHistory.push({ role: "user", content });
   const recent = [{ role: "system", content: persona }, ...chatHistory.slice(-10)];
 
   try {
@@ -232,6 +243,10 @@ async function sendToLLM(userText, isAutonomous) {
     });
     const data = await res.json();
     if (data.error) {
+      if (frame && !forceTextOnly) {
+        chatHistory.pop();
+        return sendToLLM(userText, isAutonomous, true);
+      }
       statusEl.textContent = "OpenRouter Error: " + (data.error.message || JSON.stringify(data.error));
       isBusy = false;
       resetAutoTimer();
@@ -284,4 +299,3 @@ window.toggleMic = function() {
     resetAutoTimer();
   }
 };
-  
